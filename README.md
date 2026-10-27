@@ -32,7 +32,7 @@
 
    ```bash
    cd custom_nodes
-   git clone https://github.com/your-username/ComfyUI-SQ-Lora-Loader.git
+   git clone https://github.com/Squijis/ComfyUI-SQ-Lora-Loader.git
    ```
 
 3. Restart ComfyUI.
