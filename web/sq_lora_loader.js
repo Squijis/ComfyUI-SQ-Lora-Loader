@@ -683,8 +683,29 @@ app.registerExtension({
 
     let strengthDrag = null;
 
+    function finishStrengthDrag(e, openInput = true) {
+      if (!strengthDrag) return false;
+      const drag = strengthDrag;
+      strengthDrag = null;
+      window.removeEventListener("mouseup", finishStrengthDrag, true);
+      window.removeEventListener("blur", cancelStrengthDrag);
+      node.captureInput?.(false);
+      if (openInput && !drag.moved) {
+        openStrengthInput(drag.item.strength, e.clientX, e.clientY, (newVal) => {
+          drag.item.strength = newVal;
+          syncData();
+        });
+      }
+      return true;
+    }
+
+    function cancelStrengthDrag(e) {
+      finishStrengthDrag(e, false);
+    }
+
     node.onMouseMove = function(e) {
       if (!strengthDrag) return false;
+      if (e.buttons === 0) return finishStrengthDrag(e);
       const distance = e.clientX - strengthDrag.startX;
       if (Math.abs(distance) >= 3) strengthDrag.moved = true;
       if (strengthDrag.moved) {
@@ -698,17 +719,7 @@ app.registerExtension({
     };
 
     node.onMouseUp = function(e) {
-      if (!strengthDrag) return false;
-      const drag = strengthDrag;
-      strengthDrag = null;
-      node.captureInput?.(false);
-      if (!drag.moved) {
-        openStrengthInput(drag.item.strength, e.clientX, e.clientY, (newVal) => {
-          drag.item.strength = newVal;
-          syncData();
-        });
-      }
-      return true;
+      return finishStrengthDrag(e);
     };
 
     node.onMouseDown = function(e, pos) {
@@ -798,6 +809,8 @@ app.registerExtension({
             } else {
               strengthDrag = { item, startX: e.clientX, startValue: item.strength, moved: false };
               node.captureInput?.(true);
+              window.addEventListener("mouseup", finishStrengthDrag, true);
+              window.addEventListener("blur", cancelStrengthDrag);
             }
             return true;
           }
