@@ -56,7 +56,8 @@ async def get_loras(request):
             "displayName": file_name_only,
             "category": folder_name,
             "preview": preview_url,
-            "triggers": triggers
+            "triggers": triggers,
+            "modified": os.path.getmtime(full_path) if full_path and os.path.exists(full_path) else 0
         })
         
     return web.json_response(results)
