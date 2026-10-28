@@ -6,7 +6,7 @@
 
 * 📂 **Categorization:** Automatic sorting of LoRA models based on subfolders inside your `models/loras` directory.
 
-* 🔍 **Smart Search & Zoom:** Quick search by filename or display name, alongside flexible card scaling in the gallery.
+* 🔍 **Gallery controls:** Search by filename or display name, switch between vertical and square cards, sort by name or file modification time, and scale cards from 0.50 to 1.20.
 
 * ⚡ **Quick Trigger Words Copy:** Easily copy trigger words to your clipboard with a single click directly from the preview card.
 
@@ -22,7 +22,7 @@
 
 * 📤 **On-the-Fly Preview Upload:** The `+` button on each card lets you quickly upload or update preview images directly inside the ComfyUI interface.
 
-* 🎛 **Inline Node Controls:** Global toggle (Toggle All), convenient weight (strength) adjustments via step buttons or manual input, and easy row management.
+* 🎛 **Inline Node Controls:** Global toggle (Toggle All), weight (strength) adjustment by dragging the number, step buttons, or manual input, and easy row management.
 
 ## 📦 Installation
 
@@ -45,9 +45,9 @@
 
 3. Click on any empty slot inside the node to open the **LoRA Picker modal**.
 
-4. Use categories and the search bar to find your desired model. Click a card to add it to your active list.
+4. Use categories, search, view, sort, and size controls to find your desired model. Click a card to add it to your active list.
 
-5. Adjust the strength directly on the node or click the `i` icon to set personal trigger words, notes, and links.
+5. Drag a strength number left or right, click its arrows for 0.05 steps, or click the number to type a value. Click the `i` icon for trigger words, notes, and links.
 
 ## 📁 Configuration Structure
 

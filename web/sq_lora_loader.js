@@ -14,13 +14,19 @@ style.innerHTML = `
     box-shadow: 0 10px 30px rgba(0,0,0,0.5);
   }
   .sq-lora-header-row {
-    display: flex; gap: 12px; align-items: center; margin-bottom: 10px; flex-shrink: 0;
+    display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-shrink: 0; flex-wrap: wrap;
   }
   .sq-lora-search {
-    flex: 1; padding: 10px 14px; background: #2a2a2a; border: 1px solid #444;
+    flex: 1; min-width: 180px; padding: 10px 14px; background: #2a2a2a; border: 1px solid #444;
     border-radius: 6px; color: #fff; font-size: 14px; outline: none; box-sizing: border-box;
   }
   .sq-lora-search:focus { border-color: #66c0f4; }
+  .sq-gallery-control {
+    background: #2a2a2a; border: 1px solid #444; border-radius: 6px;
+    color: #ddd; padding: 8px 10px; font-size: 12px; cursor: pointer; flex-shrink: 0;
+  }
+  .sq-gallery-control:hover, .sq-gallery-control:focus-visible { border-color: #66c0f4; color: #fff; }
+  .sq-gallery-control.active { background: #007acc; border-color: #007acc; color: #fff; }
   
   .sq-zoom-container {
     display: flex; align-items: center; gap: 8px; background: #2a2a2a; border: 1px solid #444;
@@ -139,6 +145,7 @@ app.registerExtension({
       const savedZoom = localStorage.getItem("sq_lora_loader_zoom");
       node.selectedZoom = savedZoom !== null ? parseFloat(savedZoom) : 1.0;
     }
+    node.selectedZoom = Number.isFinite(node.selectedZoom) ? Math.max(0.5, Math.min(1.2, node.selectedZoom)) : 1.0;
 
     if (!node.size || node.size[0] > 350) {
       node.size[0] = 350;
@@ -198,13 +205,44 @@ app.registerExtension({
       search.placeholder = "Search LoRA...";
       search.className = "sq-lora-search";
 
+      let viewMode = localStorage.getItem("sq_lora_loader_view") === "square" ? "square" : "vertical";
+      let sortMode = localStorage.getItem("sq_lora_loader_sort") === "date" ? "date" : "name";
+      let sortDescending = localStorage.getItem("sq_lora_loader_sort_desc") === "true";
+
+      const viewSelect = document.createElement("select");
+      viewSelect.className = "sq-gallery-control";
+      viewSelect.title = "Card shape";
+      for (const [value, label] of [["vertical", "Vertical"], ["square", "Square"]]) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        viewSelect.appendChild(option);
+      }
+      viewSelect.value = viewMode;
+
+      const nameSort = document.createElement("button");
+      nameSort.type = "button";
+      nameSort.className = "sq-gallery-control";
+      const dateSort = document.createElement("button");
+      dateSort.type = "button";
+      dateSort.className = "sq-gallery-control";
+      function updateSortButtons() {
+        nameSort.textContent = `Name ${sortMode === "name" ? (sortDescending ? "↓" : "↑") : ""}`;
+        dateSort.textContent = `Date ${sortMode === "date" ? (sortDescending ? "↓" : "↑") : ""}`;
+        nameSort.classList.toggle("active", sortMode === "name");
+        dateSort.classList.toggle("active", sortMode === "date");
+        nameSort.title = "Sort by name; click again to reverse";
+        dateSort.title = "Sort by file modification time; click again to reverse";
+      }
+      updateSortButtons();
+
       const zoomContainer = document.createElement("div");
       zoomContainer.className = "sq-zoom-container";
 
       const zoomSlider = document.createElement("input");
       zoomSlider.type = "range";
       zoomSlider.className = "sq-zoom-slider";
-      zoomSlider.min = "0.70";
+      zoomSlider.min = "0.50";
       zoomSlider.max = "1.20";
       zoomSlider.step = "0.01";
       zoomSlider.value = node.selectedZoom;
@@ -217,6 +255,9 @@ app.registerExtension({
       zoomContainer.appendChild(zoomValDisplay);
 
       headerRow.appendChild(search);
+      headerRow.appendChild(viewSelect);
+      headerRow.appendChild(nameSort);
+      headerRow.appendChild(dateSort);
       headerRow.appendChild(zoomContainer);
 
       const tabsContainer = document.createElement("div");
@@ -235,9 +276,8 @@ app.registerExtension({
 
       function updateGridMetrics() {
         const baseW = 190;
-        const baseH = 278;
         const currentW = Math.round(baseW * node.selectedZoom);
-        const currentH = Math.round(baseH * node.selectedZoom);
+        const currentH = Math.round((viewMode === "square" ? 190 : 278) * node.selectedZoom);
 
         grid.style.gridTemplateColumns = `repeat(auto-fill, ${currentW}px)`;
 
@@ -257,11 +297,15 @@ app.registerExtension({
                                 l.displayName.toLowerCase().includes(currentFilter.toLowerCase());
           return matchesCategory && matchesSearch;
         });
+        filtered.sort((a, b) => {
+          const byName = a.displayName.localeCompare(b.displayName, undefined, { numeric: true, sensitivity: "base" });
+          const result = sortMode === "date" ? (a.modified - b.modified || byName) : byName;
+          return sortDescending ? -result : result;
+        });
 
         const baseW = 190;
-        const baseH = 278;
         const currentW = Math.round(baseW * node.selectedZoom);
-        const currentH = Math.round(baseH * node.selectedZoom);
+        const currentH = Math.round((viewMode === "square" ? 190 : 278) * node.selectedZoom);
         grid.style.gridTemplateColumns = `repeat(auto-fill, ${currentW}px)`;
 
         filtered.forEach(lora => {
@@ -391,6 +435,23 @@ app.registerExtension({
         currentFilter = e.target.value;
         render();
       };
+
+      viewSelect.onchange = () => {
+        viewMode = viewSelect.value;
+        localStorage.setItem("sq_lora_loader_view", viewMode);
+        updateGridMetrics();
+      };
+
+      function changeSort(mode) {
+        sortDescending = sortMode === mode ? !sortDescending : mode === "date";
+        sortMode = mode;
+        localStorage.setItem("sq_lora_loader_sort", sortMode);
+        localStorage.setItem("sq_lora_loader_sort_desc", String(sortDescending));
+        updateSortButtons();
+        render();
+      }
+      nameSort.onclick = () => changeSort("name");
+      dateSort.onclick = () => changeSort("date");
 
       zoomSlider.oninput = (e) => {
         const val = parseFloat(e.target.value);
@@ -620,6 +681,36 @@ app.registerExtension({
       ctx.restore();
     };
 
+    let strengthDrag = null;
+
+    node.onMouseMove = function(e) {
+      if (!strengthDrag) return false;
+      const distance = e.clientX - strengthDrag.startX;
+      if (Math.abs(distance) >= 3) strengthDrag.moved = true;
+      if (strengthDrag.moved) {
+        const next = Math.max(-10, Math.min(10, Math.round((strengthDrag.startValue + distance / 300) * 100) / 100));
+        if (next !== strengthDrag.item.strength) {
+          strengthDrag.item.strength = next;
+          syncData();
+        }
+      }
+      return true;
+    };
+
+    node.onMouseUp = function(e) {
+      if (!strengthDrag) return false;
+      const drag = strengthDrag;
+      strengthDrag = null;
+      node.captureInput?.(false);
+      if (!drag.moved) {
+        openStrengthInput(drag.item.strength, e.clientX, e.clientY, (newVal) => {
+          drag.item.strength = newVal;
+          syncData();
+        });
+      }
+      return true;
+    };
+
     node.onMouseDown = function(e, pos) {
       if (node.mode === 2 || node.mode === 4 || node.mode === 3) return false;
 
@@ -637,7 +728,7 @@ app.registerExtension({
         return true;
       }
 
-      node.loraList.forEach((item, index) => {
+      for (const [index, item] of node.loraList.entries()) {
         const y = startY + index * 26;
         const isEmpty = !item.name;
 
@@ -705,15 +796,14 @@ app.registerExtension({
               item.strength = Math.min(10, item.strength + 0.05);
               syncData();
             } else {
-              openStrengthInput(item.strength, e.clientX, e.clientY, (newVal) => {
-                item.strength = newVal;
-                syncData();
-              });
+              strengthDrag = { item, startX: e.clientX, startValue: item.strength, moved: false };
+              node.captureInput?.(true);
             }
             return true;
           }
         }
-      });
+      }
+      return false;
     };
 
     updateNodeSize();
