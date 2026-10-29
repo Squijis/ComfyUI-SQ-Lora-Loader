@@ -1,9 +1,16 @@
 import os
 import json
+from urllib.parse import urlencode
 import folder_paths
 import comfy.sd
 from server import PromptServer
 from aiohttp import web
+
+
+def preview_url_for_image(image_path):
+    query = urlencode({"path": image_path.replace(os.sep, "/"), "t": os.path.getmtime(image_path)})
+    return f"/sq_lora_loader/preview?{query}"
+
 
 # Эндпоинт для отдачи картинок прямо из папки loras или рядом с ними
 @PromptServer.instance.routes.get("/sq_lora_loader/preview")
@@ -36,7 +43,7 @@ async def get_loras(request):
             for ext in [".png", ".jpg", ".jpeg", ".webp", ".preview.png"]:
                 img_path = base_path + ext
                 if os.path.exists(img_path):
-                    preview_url = f"/sq_lora_loader/preview?path={img_path.replace(os.sep, '/')}&t={os.path.getmtime(img_path)}"
+                    preview_url = preview_url_for_image(img_path)
                     break
         
         # Чтение trigger words из уникального .sq_lora.json файла
@@ -164,7 +171,7 @@ async def upload_preview(request):
         with open(target_preview_path, "wb") as f:
             f.write(file_bytes)
             
-        preview_url = f"/sq_lora_loader/preview?path={target_preview_path.replace(os.sep, '/')}&t={os.path.getmtime(target_preview_path)}"
+        preview_url = preview_url_for_image(target_preview_path)
         
         return web.json_response({"status": "success", "preview": preview_url})
     except Exception as e:
