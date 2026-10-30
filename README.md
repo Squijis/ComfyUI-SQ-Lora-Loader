@@ -14,7 +14,7 @@
 
   * Source URL (Civitai, etc.).
 
-  * Trigger words.
+  * Activation text / trigger words, description, and negative prompt shared with Forge.
 
   * Default strength.
 
@@ -51,4 +51,4 @@
 
 ## 📁 Configuration Structure
 
-All metadata (URLs, trigger words, notes, and default strength) is saved next to your actual LoRA files as local `.sq_lora.json` sidecar files (e.g., `my_lora.sq_lora.json`), keeping your configurations localized and portable.
+Forge-compatible fields are read from and saved to the LoRA's `.json` file (e.g., `my_lora.json`), preserving other keys already in that file. ComfyUI-specific URL and default strength remain in `.sq_lora.json`; existing trigger words and notes in that file are used when the corresponding Forge fields are absent.
