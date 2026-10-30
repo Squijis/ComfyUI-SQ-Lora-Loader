@@ -1,9 +1,38 @@
 import os
 import json
+import tempfile
+from urllib.parse import urlencode
 import folder_paths
 import comfy.sd
 from server import PromptServer
 from aiohttp import web
+
+
+def preview_url_for_image(image_path):
+    query = urlencode({"path": image_path.replace(os.sep, "/"), "t": os.path.getmtime(image_path)})
+    return f"/sq_lora_loader/preview?{query}"
+
+
+def read_metadata(path):
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError(f"Invalid LoRA metadata: {path}")
+    return data
+
+
+def write_metadata(path, data):
+    fd, temp_path = tempfile.mkstemp(prefix=".sq_lora_", suffix=".tmp", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        os.replace(temp_path, path)
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
 
 # Эндпоинт для отдачи картинок прямо из папки loras или рядом с ними
 @PromptServer.instance.routes.get("/sq_lora_loader/preview")
@@ -36,20 +65,22 @@ async def get_loras(request):
             for ext in [".png", ".jpg", ".jpeg", ".webp", ".preview.png"]:
                 img_path = base_path + ext
                 if os.path.exists(img_path):
-                    preview_url = f"/sq_lora_loader/preview?path={img_path.replace(os.sep, '/')}&t={os.path.getmtime(img_path)}"
+                    preview_url = preview_url_for_image(img_path)
                     break
         
-        # Чтение trigger words из уникального .sq_lora.json файла
+        # Forge хранит activation text в .json, старые данные ComfyUI — в .sq_lora.json.
         triggers = ""
         if full_path:
-            json_path = os.path.splitext(full_path)[0] + ".sq_lora.json"
-            if os.path.exists(json_path):
-                try:
-                    with open(json_path, "r", encoding="utf-8") as f:
-                        jdata = json.load(f)
-                        triggers = jdata.get("triggers", "")
-                except Exception:
-                    pass
+            base_path = os.path.splitext(full_path)[0]
+            try:
+                forge_data = read_metadata(base_path + ".json")
+            except (OSError, ValueError):
+                forge_data = {}
+            try:
+                legacy_data = read_metadata(base_path + ".sq_lora.json")
+            except (OSError, ValueError):
+                legacy_data = {}
+            triggers = forge_data.get("activation text", legacy_data.get("triggers", ""))
         
         results.append({
             "name": lora,
@@ -73,19 +104,29 @@ async def get_lora_info(request):
     if not full_path:
         return web.json_response({"url": "", "triggers": "", "notes": "", "strength": 1.0})
     
-    json_path = os.path.splitext(full_path)[0] + ".sq_lora.json"
-    data = {"url": "", "triggers": "", "notes": "", "strength": 1.0}
-    
-    if os.path.exists(json_path):
-        try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                loaded_data = json.load(f)
-                data.update(loaded_data)
-                if "strength" in data:
-                    data["strength"] = float(data["strength"])
-        except Exception:
-            pass
-            
+    base_path = os.path.splitext(full_path)[0]
+    try:
+        forge_data = read_metadata(base_path + ".json")
+    except (OSError, ValueError):
+        forge_data = {}
+    try:
+        legacy_data = read_metadata(base_path + ".sq_lora.json")
+    except (OSError, ValueError):
+        legacy_data = {}
+
+    try:
+        strength = float(legacy_data.get("strength", 1.0))
+    except (TypeError, ValueError):
+        strength = 1.0
+    data = {
+        "url": legacy_data.get("url", ""),
+        "triggers": forge_data.get("activation text", legacy_data.get("triggers", "")),
+        "notes": forge_data.get("notes", legacy_data.get("notes", "")),
+        "strength": strength,
+        "description": forge_data.get("description", ""),
+        "activation_text": forge_data.get("activation text", legacy_data.get("triggers", "")),
+        "negative_text": forge_data.get("negative text", ""),
+    }
     return web.json_response(data)
 
 # Эндпоинт для сохранения JSON с информацией о LoRA
@@ -101,25 +142,31 @@ async def save_lora_info(request):
         if not full_path:
             return web.Response(status=404)
             
-        json_path = os.path.splitext(full_path)[0] + ".sq_lora.json"
-        
-        existing_data = {}
-        if os.path.exists(json_path):
-            try:
-                with open(json_path, "r", encoding="utf-8") as f:
-                    existing_data = json.load(f)
-            except Exception:
-                pass
+        base_path = os.path.splitext(full_path)[0]
+        forge_path = base_path + ".json"
+        legacy_path = base_path + ".sq_lora.json"
+        forge_data = read_metadata(forge_path)
+        legacy_data = read_metadata(legacy_path)
 
-        existing_data.update({
-            "url": body.get("url", ""),
-            "triggers": body.get("triggers", ""),
-            "notes": body.get("notes", ""),
-            "strength": float(body.get("strength", 1.0))
-        })
-        
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(existing_data, f, indent=4, ensure_ascii=False)
+        forge_fields = {
+            "description": "description",
+            "activation_text": "activation text",
+            "negative_text": "negative text",
+            "notes": "notes",
+        }
+        for input_key, forge_key in forge_fields.items():
+            if input_key in body:
+                forge_data[forge_key] = str(body[input_key])
+        if "activation_text" not in body and "triggers" in body:
+            forge_data["activation text"] = str(body["triggers"])
+        for key in ("url", "strength", "notes"):
+            if key in body:
+                legacy_data[key] = float(body[key]) if key == "strength" else str(body[key])
+        if "activation_text" in body or "triggers" in body:
+            legacy_data["triggers"] = str(body.get("activation_text", body.get("triggers", "")))
+
+        write_metadata(forge_path, forge_data)
+        write_metadata(legacy_path, legacy_data)
             
         return web.json_response({"status": "success"})
     except Exception as e:
@@ -164,7 +211,7 @@ async def upload_preview(request):
         with open(target_preview_path, "wb") as f:
             f.write(file_bytes)
             
-        preview_url = f"/sq_lora_loader/preview?path={target_preview_path.replace(os.sep, '/')}&t={os.path.getmtime(target_preview_path)}"
+        preview_url = preview_url_for_image(target_preview_path)
         
         return web.json_response({"status": "success", "preview": preview_url})
     except Exception as e:
