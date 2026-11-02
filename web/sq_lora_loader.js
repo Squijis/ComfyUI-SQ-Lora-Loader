@@ -61,6 +61,7 @@ style.innerHTML = `
     border: 2px solid transparent; transition: all 0.15s ease; position: relative;
   }
   .sq-lora-card:hover { border-color: #007acc; transform: translateY(-2px); z-index: 2; }
+  .sq-lora-card.selected, .sq-lora-card.selected:hover { border-color: #32b85a; }
   .sq-lora-card:hover .sq-info-btn,
   .sq-lora-card:hover .sq-upload-btn { opacity: 1; }
   .sq-lora-card img { width: 100%; height: 100%; object-fit: cover; background: #111; display: block; }
@@ -280,6 +281,7 @@ app.registerExtension({
         const currentH = Math.round((viewMode === "square" ? 190 : 278) * node.selectedZoom);
 
         grid.style.gridTemplateColumns = `repeat(auto-fill, ${currentW}px)`;
+        grid.style.gap = `${15 * Math.min(node.selectedZoom, 1)}px`;
 
         const cards = grid.querySelectorAll(".sq-lora-card");
         cards.forEach(card => {
@@ -303,16 +305,12 @@ app.registerExtension({
           return sortDescending ? -result : result;
         });
 
-        const baseW = 190;
-        const currentW = Math.round(baseW * node.selectedZoom);
-        const currentH = Math.round((viewMode === "square" ? 190 : 278) * node.selectedZoom);
-        grid.style.gridTemplateColumns = `repeat(auto-fill, ${currentW}px)`;
-
         filtered.forEach(lora => {
           const card = document.createElement("div");
           card.className = "sq-lora-card";
-          card.style.width = `${currentW}px`;
-          card.style.height = `${currentH}px`;
+          if (node.loraList.some(item => item.name === lora.name)) {
+            card.classList.add("selected");
+          }
 
           const img = document.createElement("img");
           img.src = lora.preview || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' fill='%23333'><rect width='100%' height='100%'/></svg>";
@@ -416,6 +414,7 @@ app.registerExtension({
 
           grid.appendChild(card);
         });
+        updateGridMetrics();
       }
 
       categories.forEach(cat => {
@@ -678,10 +677,61 @@ app.registerExtension({
         ctx.textAlign = "left";
       });
 
+      if (rowDrag?.moved && rowDrag.target !== rowDrag.startIndex) {
+        const targetY = startY + rowDrag.target * 26 + (rowDrag.target > rowDrag.startIndex ? 18 : -8);
+        ctx.strokeStyle = "#66c0f4";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(marginX + 22, targetY);
+        ctx.lineTo(node.size[0] - marginX - 7, targetY);
+        ctx.stroke();
+      }
+
       ctx.restore();
     };
 
     let strengthDrag = null;
+    let rowDrag = null;
+
+    function updateRowDrag(e) {
+      const distance = e.clientY - rowDrag.startY;
+      if (Math.abs(distance) >= 4) rowDrag.moved = true;
+      if (rowDrag.moved) {
+        const scale = app.canvas?.ds?.scale || 1;
+        const lastIndex = node.loraList.filter(item => item.name).length - 1;
+        rowDrag.target = Math.max(0, Math.min(lastIndex,
+          rowDrag.startIndex + Math.round(distance / (26 * scale))));
+        node.setDirtyCanvas(true, true);
+      }
+    }
+
+    function finishRowDrag(e, allowClick = true) {
+      if (!rowDrag) return false;
+      const drag = rowDrag;
+      if (allowClick && e?.clientY !== undefined) updateRowDrag(e);
+      rowDrag = null;
+      window.removeEventListener("mouseup", finishRowDrag, true);
+      window.removeEventListener("blur", cancelRowDrag);
+      node.captureInput?.(false);
+      if (allowClick && !drag.moved) {
+        openLoraPicker((selectedName, selectedStrength) => {
+          drag.item.name = selectedName;
+          drag.item.strength = selectedStrength !== undefined ? selectedStrength : 1.0;
+          syncData();
+        });
+      } else if (allowClick && drag.target !== drag.startIndex) {
+        node.loraList.splice(drag.startIndex, 1);
+        node.loraList.splice(drag.target, 0, drag.item);
+        syncData();
+      } else {
+        node.setDirtyCanvas(true, true);
+      }
+      return true;
+    }
+
+    function cancelRowDrag() {
+      finishRowDrag(null, false);
+    }
 
     function finishStrengthDrag(e, openInput = true) {
       if (!strengthDrag) return false;
@@ -704,6 +754,11 @@ app.registerExtension({
     }
 
     node.onMouseMove = function(e) {
+      if (rowDrag) {
+        if (e.buttons === 0) return finishRowDrag(e);
+        updateRowDrag(e);
+        return true;
+      }
       if (!strengthDrag) return false;
       if (e.buttons === 0) return finishStrengthDrag(e);
       const distance = e.clientX - strengthDrag.startX;
@@ -719,7 +774,7 @@ app.registerExtension({
     };
 
     node.onMouseUp = function(e) {
-      return finishStrengthDrag(e);
+      return finishRowDrag(e) || finishStrengthDrag(e);
     };
 
     node.onMouseDown = function(e, pos) {
@@ -790,11 +845,10 @@ app.registerExtension({
           }
 
           if (pos[0] >= btnX && pos[0] <= btnX + btnW && pos[1] >= btnY && pos[1] <= btnY + btnH) {
-            openLoraPicker((selectedName, selectedStrength) => {
-              item.name = selectedName;
-              item.strength = selectedStrength !== undefined ? selectedStrength : 1.0;
-              syncData();
-            });
+            rowDrag = { item, startIndex: index, target: index, startY: e.clientY, moved: false };
+            node.captureInput?.(true);
+            window.addEventListener("mouseup", finishRowDrag, true);
+            window.addEventListener("blur", cancelRowDrag);
             return true;
           }
 
